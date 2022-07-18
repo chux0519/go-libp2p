@@ -25,3 +25,11 @@ func WithACL(acl ACLFilter) Option {
 		return nil
 	}
 }
+
+// WithAudit is a Relay option that supplies an RelayAudit for network traffic audit.
+func WithAudit(audit RelayAudit) Option {
+	return func(r *Relay) error {
+		r.audit = audit
+		return nil
+	}
+}
