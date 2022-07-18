@@ -48,6 +48,7 @@ type Relay struct {
 	host        host.Host
 	rc          Resources
 	acl         ACLFilter
+	audit       RelayAudit
 	constraints *constraints
 	scope       network.ResourceScopeSpan
 
@@ -68,6 +69,7 @@ func New(h host.Host, opts ...Option) (*Relay, error) {
 		host:   h,
 		rc:     DefaultResources(),
 		acl:    nil,
+		audit:  nil,
 		rsvp:   make(map[peer.ID]time.Time),
 		conns:  make(map[peer.ID]int),
 	}
@@ -443,6 +445,10 @@ func (r *Relay) relayLimited(src, dest network.Stream, srcID, destID peer.ID, li
 		}
 	}
 
+	if r.audit != nil {
+		r.audit.OnRelay(srcID, destID, count)
+	}
+
 	log.Debugf("relayed %d bytes from %s to %s", count, srcID, destID)
 }
 
@@ -461,6 +467,10 @@ func (r *Relay) relayUnlimited(src, dest network.Stream, srcID, destID peer.ID, 
 	} else {
 		// propagate the close
 		dest.CloseWrite()
+	}
+
+	if r.audit != nil {
+		r.audit.OnRelay(srcID, destID, count)
 	}
 
 	log.Debugf("relayed %d bytes from %s to %s", count, srcID, destID)
