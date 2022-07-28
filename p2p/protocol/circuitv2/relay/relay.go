@@ -430,8 +430,8 @@ func (r *Relay) relayLimited(src, dest network.Stream, srcID, destID peer.ID, li
 	defer pool.Put(buf)
 
 	limitedSrc := io.LimitReader(src, limit)
-
-	count, err := io.CopyBuffer(dest, limitedSrc, buf)
+	auditPipe := RelayAuditPipe{srcID, destID, r.audit}
+	count, err := auditPipe.CopyBuffer(dest, limitedSrc, buf)
 	if err != nil {
 		log.Debugf("relay copy error: %s", err)
 		// Reset both.
@@ -446,10 +446,6 @@ func (r *Relay) relayLimited(src, dest network.Stream, srcID, destID peer.ID, li
 		}
 	}
 
-	if r.audit != nil {
-		r.audit.OnRelay(srcID, destID, count)
-	}
-
 	log.Debugf("relayed %d bytes from %s to %s", count, srcID, destID)
 }
 
@@ -459,7 +455,8 @@ func (r *Relay) relayUnlimited(src, dest network.Stream, srcID, destID peer.ID, 
 	buf := pool.Get(r.rc.BufferSize)
 	defer pool.Put(buf)
 
-	count, err := io.CopyBuffer(dest, src, buf)
+	auditPipe := RelayAuditPipe{srcID, destID, r.audit}
+	count, err := auditPipe.CopyBuffer(dest, src, buf)
 	if err != nil {
 		log.Debugf("relay copy error: %s", err)
 		// Reset both.
@@ -468,10 +465,6 @@ func (r *Relay) relayUnlimited(src, dest network.Stream, srcID, destID peer.ID, 
 	} else {
 		// propagate the close
 		dest.CloseWrite()
-	}
-
-	if r.audit != nil {
-		r.audit.OnRelay(srcID, destID, count)
 	}
 
 	log.Debugf("relayed %d bytes from %s to %s", count, srcID, destID)
