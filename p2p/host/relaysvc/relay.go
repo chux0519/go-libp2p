@@ -34,6 +34,10 @@ func NewRelayManager(host host.Host, opts ...relayv2.Option) *RelayManager {
 	return m
 }
 
+func (m *RelayManager) Relay() *relayv2.Relay {
+	return m.relay
+}
+
 func (m *RelayManager) background(ctx context.Context) {
 	defer m.refCount.Done()
 	defer func() {

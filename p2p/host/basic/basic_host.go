@@ -543,6 +543,11 @@ func (h *BasicHost) Peerstore() peerstore.Peerstore {
 	return h.Network().Peerstore()
 }
 
+// RelayManager returns the RelayManager of the Host
+func (h *BasicHost) RelayManager() *relaysvc.RelayManager {
+	return h.relayManager
+}
+
 // Network returns the Network interface of the Host
 func (h *BasicHost) Network() network.Network {
 	return h.network
