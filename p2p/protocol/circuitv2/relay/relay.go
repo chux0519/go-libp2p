@@ -55,6 +55,7 @@ type Relay struct {
 	mx    sync.Mutex
 	rsvp  map[peer.ID]time.Time
 	conns map[peer.ID]int
+	chans map[peer.ID]chan bool /* channels for aborting connection */
 
 	selfAddr ma.Multiaddr
 }
@@ -72,6 +73,7 @@ func New(h host.Host, opts ...Option) (*Relay, error) {
 		audit:  nil,
 		rsvp:   make(map[peer.ID]time.Time),
 		conns:  make(map[peer.ID]int),
+		chans:  make(map[peer.ID]chan bool),
 	}
 
 	for _, opt := range opts {
@@ -206,6 +208,12 @@ func (r *Relay) handleReserve(s network.Stream) {
 	if err := r.writeResponse(s, pbv2.Status_OK, r.makeReservationMsg(p, expire), r.makeLimitMsg(p)); err != nil {
 		log.Debugf("error writing reservation response; retracting reservation for %s", p)
 		s.Reset()
+	}
+}
+
+func (r *Relay) DisconnectByPeerID(id peer.ID) {
+	if ch, ok := r.chans[id]; ok == true {
+		ch <- true
 	}
 }
 
@@ -408,7 +416,12 @@ func (r *Relay) addConn(p peer.ID) {
 	r.conns[p] = conns
 	if conns == 1 {
 		r.host.ConnManager().TagPeer(p, relayHopTag, relayHopTagValue)
+		// init channels
+		if _, ok := r.chans[p]; ok == false {
+			r.chans[p] = make(chan bool)
+		}
 	}
+
 }
 
 func (r *Relay) rmConn(p peer.ID) {
@@ -417,6 +430,7 @@ func (r *Relay) rmConn(p peer.ID) {
 	if conns > 0 {
 		r.conns[p] = conns
 	} else {
+		delete(r.chans, p)
 		delete(r.conns, p)
 		r.host.ConnManager().UntagPeer(p, relayHopTag)
 	}
@@ -430,7 +444,14 @@ func (r *Relay) relayLimited(src, dest network.Stream, srcID, destID peer.ID, li
 
 	limitedSrc := io.LimitReader(src, limit)
 	auditPipe := RelayAuditPipe{srcID, destID, r.audit}
-	count, err := auditPipe.CopyBuffer(dest, limitedSrc, buf)
+	ch, ok := r.chans[srcID]
+	if !ok {
+		log.Debugf("relay copy error: quit channel is not exists")
+		// Reset both.
+		src.Reset()
+		dest.Reset()
+	}
+	count, err := auditPipe.CopyBuffer(dest, limitedSrc, buf, ch)
 	if err != nil {
 		log.Debugf("relay copy error: %s", err)
 		// Reset both.
@@ -455,7 +476,14 @@ func (r *Relay) relayUnlimited(src, dest network.Stream, srcID, destID peer.ID, 
 	defer pool.Put(buf)
 
 	auditPipe := RelayAuditPipe{srcID, destID, r.audit}
-	count, err := auditPipe.CopyBuffer(dest, src, buf)
+	ch, ok := r.chans[srcID]
+	if !ok {
+		log.Debugf("relay copy error: quit channel is not exists")
+		// Reset both.
+		src.Reset()
+		dest.Reset()
+	}
+	count, err := auditPipe.CopyBuffer(dest, src, buf, ch)
 	if err != nil {
 		log.Debugf("relay copy error: %s", err)
 		// Reset both.
