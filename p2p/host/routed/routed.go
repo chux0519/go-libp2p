@@ -40,6 +40,10 @@ func Wrap(h host.Host, r Routing) *RoutedHost {
 	return &RoutedHost{h, r}
 }
 
+func (rh *RoutedHost) Unwrap() host.Host {
+	return rh.host
+}
+
 // Connect ensures there is a connection between this host and the peer with
 // given peer.ID. See (host.Host).Connect for more information.
 //
