@@ -55,7 +55,7 @@ type Relay struct {
 	mx    sync.Mutex
 	rsvp  map[peer.ID]time.Time
 	conns map[peer.ID]int
-	chans map[peer.ID]chan bool /* channels for aborting connection */
+	chans map[peer.ID]map[peer.ID]chan bool /* channels for aborting connection */
 
 	selfAddr ma.Multiaddr
 }
@@ -73,7 +73,7 @@ func New(h host.Host, opts ...Option) (*Relay, error) {
 		audit:  nil,
 		rsvp:   make(map[peer.ID]time.Time),
 		conns:  make(map[peer.ID]int),
-		chans:  make(map[peer.ID]chan bool),
+		chans:  make(map[peer.ID]map[peer.ID]chan bool),
 	}
 
 	for _, opt := range opts {
@@ -211,9 +211,11 @@ func (r *Relay) handleReserve(s network.Stream) {
 	}
 }
 
-func (r *Relay) DisconnectByPeerID(id peer.ID) {
-	if ch, ok := r.chans[id]; ok == true {
-		ch <- true
+func (r *Relay) DisconnectByPeerID(from peer.ID, to peer.ID) {
+	if dests, ok := r.chans[from]; ok == true {
+		if ch, ok := dests[to]; ok == true {
+			ch <- true
+		}
 	}
 }
 
@@ -285,6 +287,7 @@ func (r *Relay) handleConnect(s network.Stream, msg *pbv2.HopMessage) {
 
 	r.addConn(src)
 	r.addConn(dest.ID)
+	r.addChan(src, dest.ID)
 	r.mx.Unlock()
 
 	cleanup := func() {
@@ -292,6 +295,7 @@ func (r *Relay) handleConnect(s network.Stream, msg *pbv2.HopMessage) {
 		r.mx.Lock()
 		r.rmConn(src)
 		r.rmConn(dest.ID)
+		r.rmChan(src, dest.ID)
 		r.mx.Unlock()
 	}
 
@@ -416,10 +420,6 @@ func (r *Relay) addConn(p peer.ID) {
 	r.conns[p] = conns
 	if conns == 1 {
 		r.host.ConnManager().TagPeer(p, relayHopTag, relayHopTagValue)
-		// init channels
-		if _, ok := r.chans[p]; ok == false {
-			r.chans[p] = make(chan bool)
-		}
 	}
 
 }
@@ -430,9 +430,28 @@ func (r *Relay) rmConn(p peer.ID) {
 	if conns > 0 {
 		r.conns[p] = conns
 	} else {
-		delete(r.chans, p)
 		delete(r.conns, p)
 		r.host.ConnManager().UntagPeer(p, relayHopTag)
+	}
+}
+
+func (r *Relay) addChan(src, dest peer.ID) {
+	if _, ok := r.chans[src]; !ok {
+		r.chans[src] = make(map[peer.ID]chan bool)
+	}
+	if _, ok := r.chans[src][dest]; !ok {
+		r.chans[src][dest] = make(chan bool)
+	}
+}
+
+func (r *Relay) rmChan(src, dest peer.ID) {
+	if _, ok := r.chans[src]; ok {
+		if _, ok := r.chans[src][dest]; ok {
+			delete(r.chans[src], dest)
+		}
+		if len(r.chans[src]) == 0 {
+			delete(r.chans, src)
+		}
 	}
 }
 
@@ -444,7 +463,7 @@ func (r *Relay) relayLimited(src, dest network.Stream, srcID, destID peer.ID, li
 
 	limitedSrc := io.LimitReader(src, limit)
 	auditPipe := RelayAuditPipe{srcID, destID, r.audit}
-	ch, ok := r.chans[srcID]
+	ch, ok := r.chans[srcID][destID]
 	if !ok {
 		log.Debugf("relay copy error: quit channel is not exists")
 		// Reset both.
@@ -476,7 +495,7 @@ func (r *Relay) relayUnlimited(src, dest network.Stream, srcID, destID peer.ID, 
 	defer pool.Put(buf)
 
 	auditPipe := RelayAuditPipe{srcID, destID, r.audit}
-	ch, ok := r.chans[srcID]
+	ch, ok := r.chans[srcID][destID]
 	if !ok {
 		log.Debugf("relay copy error: quit channel is not exists")
 		// Reset both.
