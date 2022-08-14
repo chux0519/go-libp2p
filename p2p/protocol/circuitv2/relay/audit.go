@@ -76,7 +76,7 @@ outter:
 				}
 				if nr != nw {
 					err = io.ErrShortWrite
-					break
+					break outter
 				}
 			}
 			if er != nil {

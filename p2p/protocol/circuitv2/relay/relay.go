@@ -288,6 +288,7 @@ func (r *Relay) handleConnect(s network.Stream, msg *pbv2.HopMessage) {
 	r.addConn(src)
 	r.addConn(dest.ID)
 	r.addChan(src, dest.ID)
+	r.addChan(dest.ID, src)
 	r.mx.Unlock()
 
 	cleanup := func() {
@@ -296,6 +297,7 @@ func (r *Relay) handleConnect(s network.Stream, msg *pbv2.HopMessage) {
 		r.rmConn(src)
 		r.rmConn(dest.ID)
 		r.rmChan(src, dest.ID)
+		r.rmChan(dest.ID, src)
 		r.mx.Unlock()
 	}
 
@@ -449,6 +451,8 @@ func (r *Relay) rmChan(src, dest peer.ID) {
 		if _, ok := r.chans[src][dest]; ok {
 			delete(r.chans[src], dest)
 		}
+	}
+	if _, ok := r.chans[src]; ok {
 		if len(r.chans[src]) == 0 {
 			delete(r.chans, src)
 		}
@@ -465,14 +469,14 @@ func (r *Relay) relayLimited(src, dest network.Stream, srcID, destID peer.ID, li
 	auditPipe := RelayAuditPipe{srcID, destID, r.audit}
 	ch, ok := r.chans[srcID][destID]
 	if !ok {
-		log.Debugf("relay copy error: quit channel is not exists")
+		log.Errorf("relay copy error: quit channel is not exists")
 		// Reset both.
 		src.Reset()
 		dest.Reset()
 	}
 	count, err := auditPipe.CopyBuffer(dest, limitedSrc, buf, ch)
 	if err != nil {
-		log.Debugf("relay copy error: %s", err)
+		log.Errorf("relay copy error: %s", err)
 		// Reset both.
 		src.Reset()
 		dest.Reset()
@@ -497,14 +501,14 @@ func (r *Relay) relayUnlimited(src, dest network.Stream, srcID, destID peer.ID, 
 	auditPipe := RelayAuditPipe{srcID, destID, r.audit}
 	ch, ok := r.chans[srcID][destID]
 	if !ok {
-		log.Debugf("relay copy error: quit channel is not exists")
+		log.Errorf("relay copy error: quit channel is not exists")
 		// Reset both.
 		src.Reset()
 		dest.Reset()
 	}
 	count, err := auditPipe.CopyBuffer(dest, src, buf, ch)
 	if err != nil {
-		log.Debugf("relay copy error: %s", err)
+		log.Errorf("relay copy error: %s", err)
 		// Reset both.
 		src.Reset()
 		dest.Reset()
